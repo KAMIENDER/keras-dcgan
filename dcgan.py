@@ -12,16 +12,17 @@ import numpy as np
 from PIL import Image
 import argparse
 import math
-
+import os
+import cv2
 
 def generator_model():
     model = Sequential()
     model.add(Dense(input_dim=100, output_dim=1024))
     model.add(Activation('tanh'))
-    model.add(Dense(128*7*7))
+    model.add(Dense(128*8*8))
     model.add(BatchNormalization())
     model.add(Activation('tanh'))
-    model.add(Reshape((7, 7, 128), input_shape=(128*7*7,)))
+    model.add(Reshape((8, 8, 128), input_shape=(128*8*8,)))
     model.add(UpSampling2D(size=(2, 2)))
     model.add(Conv2D(64, (5, 5), padding='same'))
     model.add(Activation('tanh'))
@@ -36,7 +37,9 @@ def discriminator_model():
     model.add(
             Conv2D(64, (5, 5),
             padding='same',
-            input_shape=(28, 28, 1))
+            # 下面这个改了图片规格
+            input_shape=(32, 32, 1))
+            # input_shape=(28, 28, 1))
             )
     model.add(Activation('tanh'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
@@ -73,12 +76,44 @@ def combine_images(generated_images):
             img[:, :, 0]
     return image
 
+def get_pthoto():
+    all = []
+    # print(all.shape)
+    path = "G:/大学/物理大创/selected_60/selected_60/pattern_png/"
+    for filename in os.listdir(r"G:/大学/物理大创/selected_60/selected_60/pattern_png"):
+        # 以灰度图形式打开
+        img = Image.open(path+filename).convert('L')
+        img = np.array(img)
+        if img is None:
+            continue
+        img = img[:,:,None]
+        # print(img.shape)
+        all.append(img)
+    all = np.array(all)
+    x_train = all[0:94,:,:,:]
+    x_test = all[94:,:,:,:]
+    print(x_train.shape)
+    print(x_test.shape)
+    y_train = np.ones(shape=(94))
+    y_test = np.ones(shape=(30))
+    # print(y_test.shape)
+    # print(y_train.shape)
+    return (x_train, y_train), (x_test,y_test)
+    # print(all.shape)
+    # print(all)
+
+
 
 def train(BATCH_SIZE):
-    (X_train, y_train), (X_test, y_test) = mnist.load_data()
+    # (X_train, y_train), (X_test, y_test) = mnist.load_data()
+    # 灰度化
+    (X_train, y_train), (X_test, y_test) = get_pthoto()
     X_train = (X_train.astype(np.float32) - 127.5)/127.5
-    X_train = X_train[:, :, :, None]
-    X_test = X_test[:, :, :, None]
+    print(X_train.shape)
+    print(y_test.shape)
+    # X_train = X_train[:, :, :, None] #取灰度数据，第一维是数量，第二维是x，第三维是y？
+    # X_test = X_test[:, :, :, None]
+    print(X_test.shape)
     # X_train = X_train.reshape((X_train.shape, 1) + X_train.shape[1:])
     d = discriminator_model()
     g = generator_model()
@@ -89,18 +124,21 @@ def train(BATCH_SIZE):
     d_on_g.compile(loss='binary_crossentropy', optimizer=g_optim)
     d.trainable = True
     d.compile(loss='binary_crossentropy', optimizer=d_optim)
-    for epoch in range(100):
+    g.summary()
+    for epoch in range(300):
         print("Epoch is", epoch)
         print("Number of batches", int(X_train.shape[0]/BATCH_SIZE))
         for index in range(int(X_train.shape[0]/BATCH_SIZE)):
             noise = np.random.uniform(-1, 1, size=(BATCH_SIZE, 100))
             image_batch = X_train[index*BATCH_SIZE:(index+1)*BATCH_SIZE]
             generated_images = g.predict(noise, verbose=0)
-            if index % 20 == 0:
+            if index % 90 == 0:
                 image = combine_images(generated_images)
                 image = image*127.5+127.5
                 Image.fromarray(image.astype(np.uint8)).save(
                     str(epoch)+"_"+str(index)+".png")
+            print(image_batch.shape)
+            print(generated_images.shape)
             X = np.concatenate((image_batch, generated_images))
             y = [1] * BATCH_SIZE + [0] * BATCH_SIZE
             d_loss = d.train_on_batch(X, y)
@@ -121,7 +159,7 @@ def generate(BATCH_SIZE, nice=False):
     g.load_weights('generator')
     if nice:
         d = discriminator_model()
-        d.compile(loss='binary_crossentropy', optimizer="SGD")
+        d.compile(loss='binary_crossentropy', optimizer='adam')
         d.load_weights('discriminator')
         noise = np.random.uniform(-1, 1, (BATCH_SIZE*20, 100))
         generated_images = g.predict(noise, verbose=1)
@@ -155,8 +193,9 @@ def get_args():
     return args
 
 if __name__ == "__main__":
-    args = get_args()
-    if args.mode == "train":
-        train(BATCH_SIZE=args.batch_size)
-    elif args.mode == "generate":
-        generate(BATCH_SIZE=args.batch_size, nice=args.nice)
+    # args = get_args()
+    # if args.mode == "train":
+        # train(BATCH_SIZE=args.batch_size)
+        train(BATCH_SIZE=8)
+    # elif args.mode == "generate":
+        # generate(BATCH_SIZE=args.batch_size, nice=args.nice)
