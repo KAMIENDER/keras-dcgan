@@ -5,9 +5,12 @@ from keras.layers.core import Activation
 from keras.layers.normalization import BatchNormalization
 from keras.layers.convolutional import UpSampling2D
 from keras.layers.convolutional import Conv2D, MaxPooling2D
+from keras.layers.convolutional import Conv2DTranspose
 from keras.layers.core import Flatten
 from keras.optimizers import SGD
+from keras.optimizers import Adam
 from keras.datasets import mnist
+from keras.layers.advanced_activations import LeakyReLU
 import numpy as np
 from PIL import Image
 import argparse
@@ -17,40 +20,67 @@ import cv2
 
 def generator_model():
     model = Sequential()
-    model.add(Dense(input_dim=100, output_dim=1024))
-    model.add(Activation('tanh'))
-    model.add(Dense(128*8*8))
+    model.add(Dense(392))
+    model.add(Dense(4096))
+    model.add(Reshape((32, 32, 4), input_shape=(3136,)))
+    model.add(Conv2D(64,(5,5), padding='same'))
     model.add(BatchNormalization())
+    model.add(LeakyReLU())
+    model.add(Conv2D(32,(5,5), padding='same'))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
+    model.add(Conv2D(16,(5,5), padding='same'))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
+    model.add(Conv2D(1,(5,5), padding='same'))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
     model.add(Activation('tanh'))
-    model.add(Reshape((8, 8, 128), input_shape=(128*8*8,)))
-    model.add(UpSampling2D(size=(2, 2)))
-    model.add(Conv2D(64, (5, 5), padding='same'))
-    model.add(Activation('tanh'))
-    model.add(UpSampling2D(size=(2, 2)))
-    model.add(Conv2D(1, (5, 5), padding='same'))
-    model.add(Activation('tanh'))
+
+    # model.add(Dense(128*8*8))
+    # model.add(BatchNormalization())
+    # model.add(Activation('tanh'))
+    # model.add(Reshape((8, 8, 128), input_shape=(128*8*8,)))
+    # model.add(UpSampling2D(size=(2, 2)))
+    # model.add(Conv2D(64, (5, 5), padding='same'))
+    # model.add(Activation('tanh'))
+    # model.add(UpSampling2D(size=(2, 2)))
+    # model.add(Conv2D(1, (5, 5), padding='same'))
+    # model.add(Activation('tanh'))
     return model
 
 
 def discriminator_model():
     model = Sequential()
-    model.add(
-            Conv2D(64, (5, 5),
-            padding='same',
-            # 下面这个改了图片规格
-            input_shape=(32, 32, 1))
-            # input_shape=(28, 28, 1))
-            )
-    model.add(Activation('tanh'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Conv2D(128, (5, 5)))
-    model.add(Activation('tanh'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Conv2D(64,(5,5), padding='same'))
+    model.add(LeakyReLU())
+    model.add(Dense(512))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
+    model.add(Dense(512))
     model.add(Flatten())
-    model.add(Dense(1024))
-    model.add(Activation('tanh'))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
     model.add(Dense(1))
     model.add(Activation('sigmoid'))
+
+    # model.add(
+    #         Conv2D(64, (5, 5),
+    #         padding='same',
+    #         # 下面这个改了图片规格
+    #         input_shape=(32, 32, 1))
+    #         # input_shape=(28, 28, 1))
+    #         )
+    # model.add(Activation('tanh'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Conv2D(128, (5, 5)))
+    # model.add(Activation('tanh'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Flatten())
+    # model.add(Dense(1024))
+    # model.add(Activation('tanh'))
+    # model.add(Dense(1))
+    # model.add(Activation('sigmoid'))
     return model
 
 
@@ -109,8 +139,6 @@ def train(BATCH_SIZE):
     # 灰度化
     (X_train, y_train), (X_test, y_test) = get_pthoto()
     X_train = (X_train.astype(np.float32) - 127.5)/127.5
-    print(X_train.shape)
-    print(y_test.shape)
     # X_train = X_train[:, :, :, None] #取灰度数据，第一维是数量，第二维是x，第三维是y？
     # X_test = X_test[:, :, :, None]
     print(X_test.shape)
@@ -118,13 +146,12 @@ def train(BATCH_SIZE):
     d = discriminator_model()
     g = generator_model()
     d_on_g = generator_containing_discriminator(g, d)
-    d_optim = SGD(lr=0.0005, momentum=0.9, nesterov=True)
-    g_optim = SGD(lr=0.0005, momentum=0.9, nesterov=True)
-    g.compile(loss='binary_crossentropy', optimizer="SGD")
+    d_optim = Adam(lr=0.0005, beta_1=0.5, beta_2=0.999, epsilon=1e-08)
+    g_optim = Adam(lr=0.0005, beta_1=0.5, beta_2=0.999, epsilon=1e-08)
+    g.compile(loss='binary_crossentropy', optimizer="Adam")
     d_on_g.compile(loss='binary_crossentropy', optimizer=g_optim)
     d.trainable = True
     d.compile(loss='binary_crossentropy', optimizer=d_optim)
-    g.summary()
     for epoch in range(300):
         print("Epoch is", epoch)
         print("Number of batches", int(X_train.shape[0]/BATCH_SIZE))
@@ -141,11 +168,15 @@ def train(BATCH_SIZE):
             print(generated_images.shape)
             X = np.concatenate((image_batch, generated_images))
             y = [1] * BATCH_SIZE + [0] * BATCH_SIZE
+            y = np.array(y)
+            print(X.shape)
+            print(y.shape)
+            y = y.reshape(y.shape[0])
             d_loss = d.train_on_batch(X, y)
             print("batch %d d_loss : %f" % (index, d_loss))
             noise = np.random.uniform(-1, 1, (BATCH_SIZE, 100))
             d.trainable = False
-            g_loss = d_on_g.train_on_batch(noise, [1] * BATCH_SIZE)
+            g_loss = d_on_g.train_on_batch(noise, np.array([1] * BATCH_SIZE))
             d.trainable = True
             print("batch %d g_loss : %f" % (index, g_loss))
             if index % 10 == 9:
@@ -155,11 +186,11 @@ def train(BATCH_SIZE):
 
 def generate(BATCH_SIZE, nice=False):
     g = generator_model()
-    g.compile(loss='binary_crossentropy', optimizer="SGD")
+    g.compile(loss='binary_crossentropy', optimizer="Adam")
     g.load_weights('generator')
     if nice:
         d = discriminator_model()
-        d.compile(loss='binary_crossentropy', optimizer='adam')
+        d.compile(loss='binary_crossentropy', optimizer='Adam')
         d.load_weights('discriminator')
         noise = np.random.uniform(-1, 1, (BATCH_SIZE*20, 100))
         generated_images = g.predict(noise, verbose=1)
